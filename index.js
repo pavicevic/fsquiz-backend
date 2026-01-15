@@ -148,79 +148,109 @@ app.post("/api/grade", (req, res) => {
         res.status(500).json({ error: "Grade failed" });
     }
 });
-
 // ============================
 // EXPORT QUESTIONS PDF
 // ============================
 app.post("/api/exportPDFQuestions", async (req, res) => {
-  try {
-      const { quizId, questions } = req.body;
+    try {
+        const { quizId, questions } = req.body;
 
-      res.writeHead(200, {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename=questions_${quizId}.pdf`
-      });
+        res.writeHead(200, {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename=questions_${quizId}.pdf`
+        });
 
-      const doc = new PDFDocument({ margin: 40 });
-      doc.pipe(res);
+        const doc = new PDFDocument({ margin: 40 });
+        doc.pipe(res);
 
-      // === LOGO (jedina stvar koja ostaje) ===
-      try {
-          doc.image("logo.png", { width: 120 });
-      } catch (e) {
-          console.log("Logo not found");
-      }
+        const PAGE_BOTTOM = doc.page.height - doc.page.margins.bottom;
+        const MAX_IMAGE_HEIGHT = 350;
 
-      doc.moveDown(2);
+        // === LOGO ===
+        try {
+            doc.image("logo.png", { width: 120 });
+        } catch {
+            console.log("Logo not found");
+        }
 
-      // === NASLOV ===
-      doc.fontSize(22).text("FS Quiz – Questions", { align: "center" });
-      doc.moveDown(2);
+        doc.moveDown(2);
 
-      // === SADRŽAJ — 100% BASIC I ČIST ===
-      for (let q of questions) {
-          // Pitanje
-          doc.fontSize(14).text(q.text);
-          doc.moveDown(0.5);
+        // === TITLE ===
+        doc.fontSize(22).text("FS Quiz – Questions", { align: "center" });
+        doc.moveDown(2);
 
-          // Slike
-          if (q.images && q.images.length > 0) {
-              for (const url of q.images) {
-                  try {
-                      const buf = (await axios.get(url, { responseType: "arraybuffer" })).data;
-                      doc.image(buf, {
-                        fit: [500, 500],
-                        align: "center"
+        // === QUESTIONS ===
+        for (let i = 0; i < questions.length; i++) {
+            const q = questions[i];
+
+            // Provjera prostora (ako je ostalo malo do kraja, prebaci na novu stranu)
+            if (doc.y > PAGE_BOTTOM - 100) {
+                doc.addPage();
+            }
+
+            // ---- NASLOV PITANJA (Numerisano: 1., 2., 3...) ----
+            doc
+                .fontSize(14)
+                .font("Helvetica-Bold")
+                .text(`${i + 1}. ${q.text}`, { width: 520 });
+
+            doc.moveDown(0.5);
+
+            // ---- SLIKE ----
+            if (q.images && q.images.length > 0) {
+                for (const url of q.images) {
+                    try {
+                        const imgBuffer = (
+                            await axios.get(url, { responseType: "arraybuffer" })
+                        ).data;
+
+                        if (doc.y > PAGE_BOTTOM - MAX_IMAGE_HEIGHT) {
+                            doc.addPage();
+                        }
+
+                        doc.image(imgBuffer, {
+                            fit: [500, MAX_IMAGE_HEIGHT],
+                            align: "center"
+                        });
+                        doc.moveDown(1);
+                    } catch {
+                        doc.fontSize(10).fillColor("red").text("Image failed to load").fillColor("black");
+                    }
+                }
+            }
+
+            // ---- ODGOVORI (Numerisano: a), b), c)...) ----
+            doc.font("Helvetica").fontSize(12);
+
+            if (q.answers && q.answers.length > 1) {
+                doc.text("Options:", { underline: true });
+                doc.moveDown(0.2);
+
+                q.answers.forEach((a, index) => {
+                    // Prevara indexa u slovo (0=a, 1=b...)
+                    const letter = String.fromCharCode(97 + index); 
+                    doc.fontSize(11).text(`${letter}) ${a.text}`, {
+                        indent: 20 // Malo uvučeno radi preglednosti
                     });
-                    
-                      doc.moveDown(1);
-                  } catch (e) {
-                      doc.fillColor("red").text("Image failed: " + url);
-                      doc.fillColor("black");
-                  }
-              }
-          }
+                });
+            } else {
+                doc.font("Helvetica-Oblique").text("(Open answer)", { indent: 20 });
+            }
 
-          // Odgovori
-          if (q.answers.length > 1) {
-              doc.fontSize(12).text("Options:");
-              q.answers.forEach(a => {
-                  doc.fontSize(11).text("• " + a.text);
-              });
-          } else {
-              doc.fontSize(12).text("(Open answer)");
-          }
+            // Razmak između dva pitanja i horizontalna linija (opciono)
+            doc.moveDown(1.5);
+            doc.moveTo(doc.x, doc.y).lineTo(550, doc.y).strokeColor("#eeeeee").stroke();
+            doc.moveDown(1);
+        }
 
-          doc.moveDown(1.5);
-      }
+        doc.end();
 
-      doc.end();
-
-  } catch (e) {
-      console.error(e);
-      res.status(500).json({ error: "PDF export failed" });
-  }
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: "PDF export failed" });
+    }
 });
+
 
 
 
